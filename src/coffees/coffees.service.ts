@@ -3,17 +3,20 @@ import { Coffee } from './entities/coffees.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateCoffeeDto } from './dto/create-coffee.dto/create-coffee.dto';
+import { UpdateCoffeeDto } from './dto/update-coffee.dto/update-coffee.dto';
 
 //咖啡业务逻辑与内存数据
 @Injectable()
 export class CoffeesService {
     //private coffees: Coffee[] = [];
 
+    //通过@InjectRepository把TypeORM的Repository<Coffee>注入进来，后续所有的数据库操作都通过coffeeRepository完成
     constructor(
         @InjectRepository(Coffee)
         private readonly coffeeRepository: Repository<Coffee>,
     ) {}
 
+    //等价于select * from coffee
     findAll(){
         return this.coffeeRepository.find();
     }
@@ -72,21 +75,25 @@ export class CoffeesService {
     }
 
     create(createCoffeeDto:CreateCoffeeDto){
-        const coffee=this.coffeeRepository.create(createCoffeeDto);
+        const coffee=this.coffeeRepository.create(createCoffeeDto);    //DTO -> Entity实例
+        return this.coffeeRepository.save(coffee);                     //insert入库
+    }
+
+    async update(id:string,updateCoffeeDto:UpdateCoffeeDto){
+        //preload：先按id从库里查，再用传入的字段覆盖，返回合并后的实体
+        const coffee=await this.coffeeRepository.preload({
+            id:+id,
+            ...updateCoffeeDto
+        });
+        if(!coffee){
+            throw new NotFoundException(`Coffee #${id} not found`);
+        }
+
         return this.coffeeRepository.save(coffee);
     }
 
-    update(id:string,updateCoffeeDto:any){
-        const existingCoffee=this.findOne(id);
-        if(existingCoffee){
-            
-        }
-    }
-
-    remove(id:string){
-        const coffeeIndex=this.coffees.findIndex(coffee=>coffee.id===+id);
-        if(coffeeIndex>=0){
-            this.coffees.splice(coffeeIndex,1)
-        }
+    async remove(id:string){
+        const coffee=await this.findOne(id);
+        return this.coffeeRepository.remove(coffee);
     }
 }
