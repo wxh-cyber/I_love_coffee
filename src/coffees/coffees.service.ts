@@ -1,9 +1,10 @@
-import { HttpException, HttpStatus, Injectable,NotFoundException } from '@nestjs/common';
-import { Coffee } from './entities/coffees.entity';
+import { HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateCoffeeDto } from './dto/create-coffee.dto/create-coffee.dto';
 import { UpdateCoffeeDto } from './dto/update-coffee.dto/update-coffee.dto';
+import { Coffee } from './entities/coffees.entity';
+import { Flavor } from './entities/flavor.entity';
 
 //咖啡业务逻辑与内存数据
 @Injectable()
@@ -14,11 +15,15 @@ export class CoffeesService {
     constructor(
         @InjectRepository(Coffee)
         private readonly coffeeRepository: Repository<Coffee>,
+        @InjectRepository(Flavor)
+        private readonly flavorRepository: Repository<Flavor>,
     ) {}
 
     //等价于select * from coffee
     findAll(){
-        return this.coffeeRepository.find();
+        return this.coffeeRepository.find({
+            relations:['flavors'],
+        });
     }
 
     async findOne(id:string){
@@ -67,6 +72,7 @@ export class CoffeesService {
          */
         const coffee=await this.coffeeRepository.findOne({
             where:{ id:+id },
+            relations:['flavors']
         });
         if(!coffee){
             throw new NotFoundException(`Coffee #${id} not found`);
@@ -74,17 +80,29 @@ export class CoffeesService {
         return coffee;
     }
 
-    create(createCoffeeDto:CreateCoffeeDto){
-        const coffee=this.coffeeRepository.create(createCoffeeDto);    //DTO -> Entity实例
+    async create(createCoffeeDto:CreateCoffeeDto){
+        const flavors=await Promise.all(
+            createCoffeeDto.flavors.map(name => this.preloadFlavorByName(name))
+        );
+
+        const coffee=this.coffeeRepository.create({
+            ...createCoffeeDto,
+            flavors,
+        });    //DTO -> Entity实例
         return this.coffeeRepository.save(coffee);                     //insert入库
     }
 
     async update(id:string,updateCoffeeDto:UpdateCoffeeDto){
         //preload：先按id从库里查，再用传入的字段覆盖，返回合并后的实体
-        const coffee=await this.coffeeRepository.preload({
+        const flavors=updateCoffeeDto.flavors&&(await Promise.all(
+            updateCoffeeDto.flavors.map(name => this.preloadFlavorByName(name))
+        ));
+
+        const coffee=updateCoffeeDto.flavors&&(await this.coffeeRepository.preload({
             id:+id,
-            ...updateCoffeeDto
-        });
+            ...updateCoffeeDto,
+            flavors
+        }));
         if(!coffee){
             throw new NotFoundException(`Coffee #${id} not found`);
         }
@@ -95,5 +113,15 @@ export class CoffeesService {
     async remove(id:string){
         const coffee=await this.findOne(id);
         return this.coffeeRepository.remove(coffee);
+    }
+
+    private async preloadFlavorByName(name:string):Promise<Flavor>{
+        const existingFlavor=await this.flavorRepository.findOne({
+            where: { name },
+        });
+        if(existingFlavor){
+            return existingFlavor;
+        }
+        return this.flavorRepository.create({name});
     }
 }
