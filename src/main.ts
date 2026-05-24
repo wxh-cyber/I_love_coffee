@@ -6,9 +6,12 @@ import { ValidationPipe } from '@nestjs/common';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.useGlobalPipes(new ValidationPipe({
-    whitelist: true,      // 只允许白名单中的属性
+    whitelist: true,             // 只允许白名单中的属性
     forbidNonWhitelisted: true,  // 禁止非白名单中的属性
-    transform: true,      // 自动转换属性类型
+    transform: true,             // 自动转换属性类型
+    transformOptions: {
+      enableImplicitConversion: true,  // 启用隐式转换，启动后，可以不用再使用@Type
+    }
   }));
   await app.listen(3000);
 }
