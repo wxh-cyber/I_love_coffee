@@ -15,7 +15,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
     password:'pass123',
     database:'postgres',
     autoLoadEntities:true,             //设置自动加载模块
-    synchronize:true,                  //TypeORM实体在每次运行程序，都与数据库同步
+    synchronize:false,                  //TypeORM实体在每次运行程序，都与数据库同步
     //注意：不要在生产环境中设置synchronize:true;
   })],
 

@@ -2,10 +2,207 @@
 
 <hr />
 
-### 为什么在Nestjs结合TypeORM时，禁止在生产环境中使用``synchronize:true``？
+## 在Nest中，有哪些常见的``cli``命令？
+
+在NestJS项目中，CLI（命令行界面）是提高开发效率的利器。它可以帮助我们快速创建项目、生成各种样板代码（模块、控制器、服务等），以及运行和构建项目。
+
+<br />
+
+### 1.基础与项目初始化
+**创建新项目**
+```bash
+nest new project-name
+```
+**说明**：创建一个全新的``NestJS``项目，会让你选择包管理器（``npm``、``yarn``、``pnpm``等）。如果不想全局安装 ``@nestjs/cli``，可以使用 ``npx @nestjs/cli new project-name``。
+
+<br />
+
+### 2.开发与运行
+**启动开发模式（热重载）**
+```bash
+nest start --watch
+```
+**说明**：最常用的开发命令，文件修改后会自动重新编译并重启服务。
+
+<br />
+
+**启动开发模式（增量编译）**
+```bash
+nest start --debug
+```
+**说明**：启动时保留调试信息，常配合IDE的调试工具使用。
+
+<br />
+
+**启动生产模式**
+```bash
+nest start --prod
+```
+**说明**：直接运行编译后的 ``dist`` 目录下的代码，不监听文件变化。
+
+<hr />
+
+### 3.构建项目
+**编译项目**
+```bash
+nest build
+```
+ **说明**：将TypeScript代码编译为JavaScript，默认输出到 ``dist`` 目录。可以加 ``--watch`` 进行增量编译。
+
+<hr />
+
+### 4.代码生成（核心功能）
+这是NestJS CLI最强大的地方，可以通过 ``nest generate <schematic> <name>``（简写为 ``nest g <schematic> <name>``）快速生成各种组件。
+
+<br />
+
+**生成模块**
+```bash
+nest g module users
+# 简写：nest g mo users
+```
+
+<br />
+
+**生成控制器**
+```bash
+nest g controller users
+# 简写：nest g co users
+```
+
+<br />
+
+**生成服务**
+```bash
+nest g service users
+# 简写：nest g s users
+```
+
+<br />
+
+**一键生成完整模块（推荐🌟）**
+```bash
+nest g resource users
+# 简写：nest g res users
+```
+ **说明**：**极其常用！它会一次性生成该资源的 ``Module``, ``Controller``, ``Service``, ``DTO``, ``Entity``**，并在模块中自动注册。你可以选择生成 REST API 或 GraphQL 模式。
+
+<br />
+
+**生成中间件**
+```bash
+nest g middleware logger
+# 简写：nest g mi logger
+```
+
+<br />
+
+**生成守卫**
+```bash
+nest g guard auth
+# 简写：nest g gu auth
+```
+
+<br />
+
+**生成拦截器**
+```bash
+nest g interceptor transform
+# 简写：nest g in transform
+```
+
+<br />
+
+**生成管道**
+```bash
+nest g pipe validation
+# 简写：nest g pi validation
+```
+
+<br />
+
+**生成过滤器**
+```bash
+nest g filter http-exception
+# 简写：nest g f http-exception
+```
+
+<br />
+
+**生成类/接口**
+```bash
+nest g class dto/create-user
+# 简写：nest g cl dto/create-user
+```
+
+<hr />
+
+### 5.常用生成参数（Flags）
+在使用 ``nest g`` 命令时，可以附加一些参数来控制生成行为：
+- ``--no-spec``：不生成测试文件（``.spec.ts``）。在快速开发时非常实用
+```bash
+ nest g service users --no-spec
+```
+- ``--flat``：不创建对应的文件夹，直接将文件生成在当前目录下。
+```bash
+ nest g class user.dto --flat
+```
+- ``-d`` 或 ``--dry-run``：空运行/模拟运行。只会打印将要生成的文件列表，不会实际创建文件（用于提前确认生成路径是否正确）。
+```bash
+nest g resource users -d
+```
+- ``--module`` 或 ``-m``：指定将新生成的组件注册到哪个模块（默认会自动查找并注册到最近的模块）。
+
+<hr />
+
+### 6.其他实用命令
+**查看项目环境信息**
+```bash
+nest info
+```
+**说明**：输出当前系统的 Node 版本、NPM/Yarn 版本、NestJS 核心包版本等，排查环境问题时非常有用。
+
+<br />
+
+**安装官方库**
+```bash
+nest add @nestjs/swagger
+```
+**说明**：不仅会 ``npm install`` 该包，还会自动执行该包提供的安装脚本（例如自动修改 ``main.ts`` 添加初始化代码）。
+
+<br />
+
+**更新NestJS核心依赖**
+```bash
+nest update
+# 简写：nest u
+```
+**说明**：一键将 ``@nestjs/core``, ``@nestjs/common`` 等核心包更新到最新兼容版本。
+
+<hr />
+
+### 总结速查表
+| **原词** | **简写** | **用途** |
+| :--- | :--- | :--- |
+| ``generate`` | ``g`` | 生成文件 |
+| ``module`` | ``mo`` | 模块 |
+| ``controller`` | ``co`` | 控制器 |
+| ``service`` | ``s`` | 服务 |
+| ``resource`` | ``res`` | 完整资源（CRUD） |
+| ``middleware`` | ``mi`` | 中间件 |
+| ``guard`` | ``gu`` | 守卫 |
+| ``interceptor`` | ``in`` | 拦截器 |
+| ``pipe`` | ``pi`` | 管道 |
+| ``filter`` | ``f`` | 过滤器 |
+| ``class`` | ``cl`` | 类 |
+
+<hr />
+
+## 为什么在Nestjs结合TypeORM时，禁止在生产环境中使用``synchronize:true``？
 一句话总结原因：``synchronize: true`` 会让 **TypeORM 自动帮你执行数据库结构变更（DDL），这会导致不可控的数据丢失、表锁死以及无法回滚的灾难性后果。**
 
 **1. 致命的数据丢失风险**
+
 ``synchronize: true`` 的作用是：每次应用启动时，比较你的 Entity（实体类）和数据库表结构，如果发现不一样，**它会自动修改数据库表结构去适应 Entity**。
 
 - **场景**： 假设你把实体中的一个字段名从 ``username`` 改成了 ``name``。
@@ -14,6 +211,7 @@
 
 
 **2. 导致严重的性能问题（表锁）**
+
 在 MySQL 等关系型数据库中，执行 ``ALTER TABLE`` 操作（比如新增索引、修改字段类型、删除字段）通常会锁住整张表。
 
 - 如果你的生产环境数据库里有几十万、上百万条数据，TypeORM 自动触发的 ``ALTER TABLE`` 可能需要执行几十秒甚至几分钟。
@@ -21,6 +219,7 @@
 
 
 **3. 缺乏事务安全与回滚机制**
+
 现代软件工程要求数据库变更是可控的、可逆的。
 
 - 自动同步没有“撤销”按钮。一旦它执行了错误的 ``DROP`` 或 ``ALTER``，你只能依靠数据库备份来恢复，而恢复备份往往意味着长时间的停机。
@@ -28,6 +227,7 @@
 
 
 **4. 多实例部署时的并发冲突**
+
 在生产环境中，你通常会运行多个 NestJS 实例（比如使用 PM2 集群、Docker/K8s 容器）。
 
 - 如果 3 个实例同时启动，它们可能同时检测到表结构不一致。
@@ -36,6 +236,7 @@
 <br />
 
 **正确的做法是什么？**
+
 在开发环境中，``synchronize: true`` 是可以用的，因为它能让你专心写代码，不用每次改个字段都去写 SQL，提升开发效率。
 
 但在**生产环境**，必须使用 **Migration（迁移）** 来管理数据库结构：
@@ -81,10 +282,11 @@ npm run typeorm migration:run
 
 <hr />
 
-### 什么是QueryRunner？
+## 什么是QueryRunner？
 **它是 TypeORM 给你提供的一个“底层方向盘”，让你可以直接、精细地控制数据库连接，执行原始 SQL，并手动管理数据库事务。**
 
 **1. 为什么在 Migration（迁移）中会用到它？**
+
 在上一个回答的迁移代码中，``up`` 和 ``down`` 方法都会接收一个 ``queryRunner`` 参数。这是因为**在执行数据库结构变更时，你不能使用常规的 Entity（实体类）操作**。
 
 - **实体可能已经失效**： 假设你正在把 ``username`` 字段改名为 ``name``。在执行这个迁移时，你的代码里的 ``User`` 实体类已经是 ``name`` 字段了，但数据库里还是 ``username``。此时如果你尝试用 ``userRepository.save()``，TypeORM 会因为实体和数据库结构不匹配而报错。
@@ -93,15 +295,18 @@ npm run typeorm migration:run
 
 
 **2. QueryRunner 的三大核心能力**
+
 除了在 Migration 中使用，在日常的业务代码中，遇到复杂场景时你也会用到它。
 
 **能力一：执行原始 SQL（Raw SQL）**
+
 当你觉得 TypeORM 的 ``find``、``where`` 写法太复杂，或者性能达不到要求时，可以直接写 SQL。
 ```ts
 const users = await queryRunner.query('SELECT * FROM user WHERE age = ?', [1]);
 ```
 
 **能力二：精细的事务控制（最重要的一点）**
+
 通常我们用 ``@Transactional()`` 装饰器或者 ``Connection.transaction()`` 来管理事务。但如果你有一个**极其复杂的业务逻辑**，需要在不同条件下提交或回滚不同的部分，``QueryRunner`` 就派上用场了。
 ```ts
 // 1. 获取 QueryRunner 并建立真实的数据库连接
@@ -151,7 +356,7 @@ try {
 
 <hr />
 
-### DataSource有什么用？
+## DataSource有什么用？
 ```ts
 import { DataSource } from 'typeorm';
 
@@ -252,7 +457,7 @@ export class AppModule {
 }
 ```
 
-#### ⚠️ 一个非常重要的避坑细节
+### ⚠️ 一个非常重要的避坑细节
 正如你在代码中看到的，它被放在了 ``constructor`` 里。
 **注意：NestJS 的构造函数是同步执行的，你不能在构造函数里写 ``await this.dataSource.xxx()``！**
 
@@ -278,3 +483,65 @@ export class AppModule implements OnModuleInit { // 1. 实现此接口
   }
 }
 ```
+
+<hr />
+
+## 思考：为什么在进行数据迁移时，即使配置了``synchronize:false``，在生成迁移文件时，还是会执行类似于``drop``这样的危险操作？
+
+因为 ``synchronize: false`` 只影响应用启动时是否自动同步数据库结构，不影响你手动生成迁移文件时 TypeORM 的“差异推断方式”。
+
+也就是说:
+```ts
+synchronize: false
+```
+表示：
+>Nest应用启动时，不要自动根据实体改数据库表。
+
+它不会阻止你执行；
+```bash
+npm run typeorm -- migration:generate ...
+```
+
+而``migration:generate`` 会做另一件事：
+>对比“当前数据库结构”和“当前实体定义”，然后自动生成一组 SQL，让数据库变成实体的样子。
+
+问题就在这里：TypeORM 不知道你是把字段 ``name`` 重命名成了 ``title``。
+
+它只看到：
+```txt
+数据库里有 name
+实体里没有 name
+实体里有 title
+数据库里没有 title
+```
+
+所以它推断成：
+```sql
+DROP COLUMN name;
+ADD COLUMN title;
+```
+而不是：
+```sql
+RENAME COLUMN name TO title;
+```
+因为对 ORM 来说，``name -> title`` 和 “删除 ``name``，新增 ``title``” 在结构差异上看起来很像。它没有足够信息判断这是一次“重命名”。
+
+所以重点是：
+>``synchronize: false`` 防的是运行时自动改库；
+>``migration:generate`` 仍然可能生成危险 SQL；
+>自动生成的迁移文件必须人工审查。
+
+安全做法是人工改成：
+```sql
+ALTER TABLE "coffee" RENAME COLUMN "name" TO "title";
+```
+
+所以迁移的一条经验是：
+>字段重命名、表重命名、拆表、合表、数据搬迁，不能完全相信自动生成，必须手写或人工修改迁移。
+
+<hr />
+
+## 思考：在运行``npm run migration:run``时，如果存在多个版本的迁移，实际上发生了什么？
+
+``npm run migration:run`` 遇到多个迁移版本时，TypeORM 会做这几件事：
+

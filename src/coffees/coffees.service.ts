@@ -40,6 +40,12 @@ export class CoffeesService {
         });
     }
 
+    /**
+     * @function findOne
+     * @param {string} id 
+     * @returns {Coffee} coffee
+     * @description 从数据库中根据id找到对应的数据
+     */
     async findOne(id:string){
         /**
          * TypeORM v0.2(旧版)：
@@ -88,9 +94,13 @@ export class CoffeesService {
             where:{ id:+id },
             relations:['flavors']
         });
+
+        //如果没有找到，抛出错误
         if(!coffee){
             throw new NotFoundException(`Coffee #${id} not found`);
         }
+
+        //返回找到的结果
         return coffee;
     }
 
@@ -186,33 +196,72 @@ export class CoffeesService {
         return this.coffeeRepository.save(coffee);
     }
 
+    /**
+     * @function remove
+     * @param {string} id 
+     * @description 根据找到的id移除对应的数据
+     */
     async remove(id:string){
         const coffee=await this.findOne(id);
         return this.coffeeRepository.remove(coffee);
     }
 
+    /**
+     * @function recommendCoffee
+     * @param {Coffee} coffee 
+     * @description 给某个Coffee的推荐次数加1，并且记录一条推荐事件。而且这两个数据库操作要么一起成功，要么一起失败。
+     */
     async recommendCoffee(coffee:Coffee){
+        //创建并连接事务执行器
         const queryRunner=this.dataSource.createQueryRunner();
 
         await queryRunner.connect();
         await queryRunner.startTransaction();
         try {
+            //推荐次数加1
             coffee.recommendations++;
 
+            //创建一条事件记录
             const recommendEvent = queryRunner.manager.create(Event, {
                 name: 'recommend_coffee',
                 type: 'coffee',
                 payload: { coffeeId: coffee.id },
             });
+            /**
+             * 等价于以下写法：
+             *     const recommendEvent=new Event();
+             *     recommendEvent.name='recommend_coffee';
+             *     recommendEvent.type='coffee';
+             *     recommendEvent.payload={coffeeId:coffee.id};
+             * 
+             * manager.create(Event, data) 是 TypeORM 的实体创建方式
+             * 它会根据 Event 实体元数据创建实例，并把传入对象合并进去。
+             * 更符合 TypeORM 风格，尤其适合处理 DeepPartial<Entity>、关系字段、嵌套对象等。
+             */
 
+            //保存Coffee和Event
+            /**
+             * 注意：这里不用普通的repository.save()，而是用queryRunner.manager.save()
+             * 因为它们必须在同一个事务里执行。
+             */
             await queryRunner.manager.save(coffee);
             await queryRunner.manager.save(recommendEvent);
 
+            //如果都成功，提交事务
+            /**
+             * 数据库真正确认保存：
+             *     - Coffee的recommendations+1
+             *     - Event表新增一条推荐事件
+             */
             await queryRunner.commitTransaction();
         } catch (err) {
+            //如果中途失败，回滚事务
+            //比如Coffee保存成功了，但Event保存失败了，就会回滚
+            //避免出现“推荐次数加了，但事件没记录”的不一致情况。
             await queryRunner.rollbackTransaction();
             throw err;
         } finally {
+            //最后释放连接
             await queryRunner.release();
         }
     }
