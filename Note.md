@@ -541,7 +541,119 @@ ALTER TABLE "coffee" RENAME COLUMN "name" TO "title";
 
 <hr />
 
-## 思考：在运行``npm run migration:run``时，如果存在多个版本的迁移，实际上发生了什么？
+## 思考：在运行``npm run migration:run``时，实际上发生了什么？
 
-``npm run migration:run`` 遇到多个迁移版本时，TypeORM 会做这几件事：
+1. **``npm``脚本解析**
+
+``npm``会去``package.json``中寻找``migration:run``对应的脚本命令。通常这样：
+```json
+"migration:run":"ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:run -d src/data-source.ts"
+```
+或者使用NestJS CLI的方式：
+```json
+"migration:run":"nest command migration:run"
+```
+
+<br />
+
+2. **TypeORM CLI启动与数据源加载**
+
+底层都是调用了TypeORM CLI。CLI启动后，第一步是根据``-d``参数（或默认配置）加载数据源（DataSource）。
+
+- 它会读取数据库连接配置（主机、端口、用户名、密码、数据库名）。
+- 它会加载项目中所有的 Entity（实体类），以便与数据库表结构进行对比。
+
+<br />
+
+3. **建立数据库连接并查找/创建系统表**
+
+TypeORM连接到数据库后，会去寻找一张名为migrations的系统表（表名可以在配置中自定义）。
+
+- **如果这张表不存在**：说明这是该数据库第一次运行迁移，TypeORM 会自动创建这张 ``migrations`` 表。这张表用来记录哪些迁移文件已经执行过了。
+- **如果这张表已存在**：TypeORM 会读取这张表里的记录。
+
+<br />
+
+4. **对比与计算差异**
+
+这是核心步骤。TypeORM 会做两件事：
+
+- **扫描代码**：扫描你项目中所有注册的迁移类（即那些带有 ``@Migration()`` 装饰器或继承了 ``MigrationInterface`` 的文件）。
+- **查询数据库**：读取 ``migrations`` 表中已经执行过的记录（通常包含迁移文件名和时间戳）。
+
+TypeORM 将代码中的迁移文件与数据库中已执行的记录进行**差集计算**，找出**尚未执行**的迁移文件。
+
+<br />
+
+5. **执行``up()``方法**
+
+对于计算出的未执行迁移，TypeORM 会按照一定的顺序（下一节详细讲）依次执行每个迁移类中的 ``up()`` 方法。这里面包含了真实的 SQL 语句（如建表、加字段、加索引等）。
+
+<br />
+
+6. **写入执行记录**
+
+**关键点**：当一个迁移文件的 ``up()`` 方法成功执行完毕后，TypeORM 会立即向数据库的 ``migrations`` 表中插入一条新记录，包含该迁移的名字和执行时间戳。
+
+<br />
+
+7. **断开连接**
+
+所有待执行的迁移跑完后，TypeORM 关闭数据库连接，进程退出。
+
+<hr />
+
+## 如果存在多个版本的迁移，实际上发生了什么？
+
+假设你的项目中有 3 个未执行的迁移文件，分别是：
+
+1. ``1700000000000-CreateUserTable.ts``
+2. ``1700000000001-AddEmailToUser.ts``
+3. ``1700000000002-CreatePostTable.ts``
+
+当运行 ``npm run migration:run`` 时，会发生以下情况：
+
+<br />
+
+### 1. 严格的顺序执行（基于时间戳排序）
+
+TypeORM **绝对不会**同时并发执行多个迁移，也不会随机执行。它严格按照迁移文件名中的**时间戳（Timestamp）前缀**进行**升序排序**。
+
+执行顺序绝对是：``CreateUserTable`` -> ``AddEmailToUser`` -> ``CreatePostTable``。这保证了数据库结构的演变符合代码逻辑的时间线（比如：必须先有 User 表，才能给 User 加字段）。
+
+<br />
+
+### 2. 逐个提交与记录（防止中途崩溃导致数据损坏）
+
+这是极其重要的安全机制。TypeORM 的默认行为是：**每个迁移文件独立包裹在一个事务中（取决于数据库引擎是否支持），并且跑完一个立刻记录一个**。
+
+具体流程如下：
+
+- **第一步**：开启事务，执行 ``CreateUserTable`` 的 ``up()`` 方法，提交事务。立刻在 ``migrations`` 表中写入 ``CreateUserTable`` 的执行记录。
+- **第二步**：开启事务，执行 ``AddEmailToUser`` 的 ``up()`` 方法，提交事务。立刻在 ``migrations`` 表中写入 ``AddEmailToUser`` 的执行记录。
+- **第三步**：开启事务，执行 ``CreatePostTable`` 的 ``up()`` 方法，提交事务。立刻在 ``migrations`` 表中写入 ``CreatePostTable`` 的执行记录。
+
+<br />
+
+### 3. 如果中途报错了怎么办？
+
+假设在执行第二步 ``AddEmailToUser`` 时，SQL 语法写错了导致报错。会发生什么？
+
+- 第二步的**当前事务会被回滚**，``AddEmailToUser`` 对数据库的修改无效。
+- 进程崩溃退出。
+- **第一步 ``CreateUserTable`` 的修改依然保留**在数据库中，且 ``migrations`` 表中也有它的成功记录。
+
+**下次你再次运行 ``npm run migration:run`` 时**：
+
+TypeORM 对比后发现 ``CreateUserTable`` 已经跑过了，只会从失败的 ``AddEmailToUser`` 开始继续往下跑。这种机制保证了数据库状态的一致性和可恢复性。
+
+<hr />
+
+### 💡 总结与最佳实践
+
+1. **幂等性不可靠**：TypeORM 是通过 ``migrations`` 表记录来决定是否执行迁移的，它**绝对不会在执行前检查数据库的实际物理表结构**。如果 ``migrations`` 表没有记录，哪怕物理表已经存在，它依然会执行 ``up()`` 中的 ``CREATE TABLE``，从而导致报错。
+
+2. **时间戳是生命线**：永远不要手动重命名迁移文件的时间戳前缀，不要打乱文件的自然排序，否则会导致数据库状态与代码严重脱节。
+
+3. **生成迁移而非手写**：在 NestJS 中，推荐使用 ``npm run migration:generate -- -n AddNewColumn``。这个命令会对比你的 Entity 定义和数据库实际结构，自动生成包含正确 SQL 的迁移文件，极大降低手写 SQL 出错的概率。
 
