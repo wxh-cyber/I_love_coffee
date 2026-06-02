@@ -657,3 +657,265 @@ TypeORM 对比后发现 ``CreateUserTable`` 已经跑过了，只会从失败的
 
 3. **生成迁移而非手写**：在 NestJS 中，推荐使用 ``npm run migration:generate -- -n AddNewColumn``。这个命令会对比你的 Entity 定义和数据库实际结构，自动生成包含正确 SQL 的迁移文件，极大降低手写 SQL 出错的概率。
 
+<hr />
+
+## 在``providers``中，还有哪些类似于``useClass``这样的属性？
+
+<br />
+
+### 1.``useClass``
+
+用某个类来创建实例。
+```ts
+{
+    provide:CoffeesService,
+    useClass:CoffeesService,
+}
+```
+也可以替换实现：
+```ts
+{
+    provide:CoffeesService,
+    useClass:MockCoffeesService
+}
+```
+
+<br />
+
+### 2.``useValue``
+
+直接提供一个现成的值或对象，测试里很常见。
+```ts
+{
+    provide:CoffeesService,
+    useValue:{
+      findAll:()=>[]
+    }
+}
+```
+意思是：谁注入``CoffeesService``，就拿到这个对象。
+
+<br />
+
+### 3.``useFactory``
+
+用工厂函数动态创建``provider``。
+```ts
+{
+    provider:'DATABASE_OPTIONS',
+    useFactory:()=>({
+      host:'localhost',
+      port:5432
+    })
+}
+```
+
+也可以注入别的``provider``：
+```ts
+{
+    provide:'DATABASE_OPTIONS',
+    useFactory:(configService:ConfigService)=>({
+        host:configService.get('DB_HOST')
+    }),
+    inject:[ConfigService]
+}
+```
+这里的``inject``表示工厂函数需要哪些依赖。
+
+<br />
+
+### 4.``useExisting``
+
+给已有``provider``起一个别名。
+```ts
+{
+    provide:'COFFEE_SERVICE_ALIAS',
+    useExisting:CoffeesService
+}
+```
+意思是：注入``'COFFEE_SERVICE_ALIAS'``时，拿到的其实还是``CoffeesService``那个实例。
+
+<hr />
+
+## 思考：在NestJS中，``useClass``和``useValue``如果同时存在，会发生什么？
+
+在 NestJS 中，如果在一个 Provider 的配置中同时存在 ``useClass`` 和 ``useValue`` 属性，会发生以下情况：
+
+<br />
+
+### 1. TypeScript 编译期：类型报错（正常情况下）
+
+NestJS 的类型定义非常严格。在 TypeScript 环境下，``Provider`` 是一个联合类型，它由 ``ClassProvider``、``ValueProvider``、``FactoryProvider`` 等接口组成。
+
+NestJS 的类型定义将这些提供者方式设计为**互斥**的。如果你同时写上 ``useClass`` 和 ``useValue``，TypeScript 编译器会直接报错，提示你这是无效的类型组合，你的代码根本无法通过编译。
+```ts
+{
+    provide:'MY_TOKEN',
+    useClass:MyService,
+    useValue:{foo:bar}
+}
+```
+
+<br />
+
+### 2. 运行时：``useValue``优先（如果绕过了类型检查）
+
+如果你使用的是纯 JavaScript，或者通过 ``as any`` 强行绕过了 TypeScript 的类型检查，那么在 NestJS 的运行时内部，**``useValue`` 会生效，而 ``useClass`` 会被忽略**。
+
+<br />
+
+**原因在于 NestJS 内部的解析顺序**：
+
+NestJS 的 IoC 容器在解析自定义提供者时，会按照固定的顺序去检查对象的属性。其内部逻辑大致如下：
+
+1. 先检查有没有 ``useValue``，如果有，直接返回这个值。
+2. 如果没有，检查有没有 ``useClass``，如果有，去实例化这个类。
+3. 如果没有，检查有没有 ``useFactory``…
+4. 最后检查 ``useExisting``。
+
+因为 ``useValue`` 的检查顺序在 ``useClass`` 之前，所以当容器发现 ``useValue`` 存在时，就会直接使用它，后面的 ``useClass`` 根本不会被执行。
+```js
+//纯JS或as any绕过检查
+{
+    provide:'MY_TOKEN',
+    useClass:MyService,
+    useValue:{foo:bar}
+}
+//实际运行结果：注入 'MY_TOKEN' 时，得到的是 { foo: 'bar' }，MyService 不会被实例化。
+```
+
+### 总结与最佳实践
+
+- **理论上**：两者不能同时存在，TypeScript 会在编译期拦截。
+- **实际上**：如果强行同时存在，``useValue`` 具有更高的优先级，``useClass`` 会被丢弃。
+- **最佳实践**：永远不要将 ``useValue``、``useClass``、``useFactory``、``useExisting`` 混用在同一个提供者对象中。根据你的场景选择唯一的一种：
+    - 想提供现成的对象/常量：用 ``useValue``
+    - 想让 Nest 自动实例化一个类：用 ``useClass``
+    - 想通过动态函数生成提供者：用 ``useFactory``
+    - 想使用已有的提供者别名：用 ``useExisting``
+
+<hr />
+
+## 在Nest中，如何实现动态模块？
+
+在 NestJS 中，动态模块是框架最强大、最核心的特性之一。它允许你创建可复用的模块，并能根据传入的参数（如配置项、环境变量等）在运行时动态地改变模块的行为、提供者或导出内容。
+
+NestJS 实现动态模块的核心机制依赖于**静态方法**和**DynamicModule**接口。
+
+<br />
+
+### 1. 核心原理：静态方法返回DynamicModule
+
+普通模块使用 ``@Module()`` 装饰器静态定义元数据，一旦定义就无法更改。而动态模块的做法是：**在模块类上定义一个静态方法，该方法接收配置参数，并返回一个 ``DynamicModule`` 对象**。
+
+``DynamicModule`` 接口和普通 ``@Module()`` 的元数据结构几乎一样，但多了一个必须的 ``module`` 属性，用来指定该动态模块属于哪个类。
+
+<br />
+
+### 2. 标准实现步骤
+
+假设要创建一个数据库连接模块 ``DatabaseModule``，需要根据传入的配置连接不同的数据库。
+
+<br />
+
+**步骤1：定义配置接口**
+
+定义模块需要接收的参数类型：
+```ts
+export interface DatabaseModuleOptions {
+    host:string;
+    port:number;
+    username:string;
+    password:string;
+}
+```
+
+<br />
+
+**步骤2：创建模块并编写静态方法**
+
+在模块类中添加静态方法（通常命名为 ``forRoot`` 或 ``register``），返回 ``DynamicModule``。
+```ts
+import {Module,DynamicModule,Provider} from '@nestjs/common'
+import {DatabaseModuleOptions} from './interfaces'
+import {DatabaseService} from './database.service'
+
+@Module({})
+export class DatabaseModule {
+    //静态方法，接收配置参数
+    static forRoot(options:DatabaseModuleOptions):DynamicModule{
+        
+        //1. 创建一个自定义Provider，将配置对象注入到容器中
+        const optionsProvider:Provider={
+            provide:'DATABASE_OPTIONS',
+            useValue:options  
+        };
+
+        //2. 返回DynamicModule对象
+        return {
+            module:DatabaseModule,                         //必填：指明这个动态模块属于DatabaseModule
+            providers:[optionsProvider,DatabaseService],   //注册提供者
+            exports:[DatabaseService],                     //导出提供者，供外部使用
+            global:true                                    //可选：设为全局模块，这样其他模块就不用再 imports 了
+        }
+    }
+}
+```
+
+<br />
+
+**步骤3：在服务中使用配置**
+
+``DatabaseService`` 可以通过注入 ``'DATABASE_OPTIONS'`` 这个 Token 来获取配置：
+```ts
+import {Injectable,Inject} from '@nestjs/common'
+import {DatabaseModuleOptions} from './interfaces'
+
+@Injectable()
+export class DatabaseService {
+    constructor(@Inject('DATABASE_OPTIONS') private options:DatabaseModuleOptions){
+        console.log(`Connecting to ${options.host}:${options.port}...`);
+    }
+}
+```
+
+<br />
+
+**步骤4：在AppModule中使用**
+
+调用静态方法来导入模块，而不是直接写类名：
+```ts
+import {Module} from '@nestjs/common'
+import {DatabaseModule} from './database/database.module'
+
+@Module({
+    imports:[
+        //调用静态方法，传入配置
+        DatabaseModule.forRoot({
+            host:'localhost',
+            port:5432,
+            username:'admin',
+            password:'123456'
+        })
+    ]
+})
+export class AppModule {
+    
+}
+```
+
+<br />
+
+### 3. 动态模块的命名规范
+
+NestJS 社区对动态模块的静态方法有一套强约定俗成的命名规范，遵循这些规范能让你的代码更具可读性：
+| **方法名** | **使用场景** | **典型代表** | **特点** |
+| :--- | :--- | :--- | :--- |
+| ``forRoot`` | 只在根模块调用一次，配置全局基础依赖 | ``TypeOrmModule.forRoot()`` | 常配合 ``global: true`` 使用，只初始化一次。 |
+| ``forFeature`` | 在各个业务模块中调用，注册特定功能 | ``TypeOrmModule.forFeature([UserEntity])`` | 依赖 ``forRoot`` 提供的基础配置，注册局部内容。 |
+| ``register`` | 在任何需要的地方调用，每次调用都是独立的 | ``ConfigModule.register()`` | 不像 ``forRoot`` 那样有全局/局部依赖关系，哪里需要哪里注册。 |
+
+<br />
+
+### 4. 异步配置
+

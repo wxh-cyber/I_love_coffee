@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException,Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository,DataSource } from 'typeorm';
 import { CreateCoffeeDto } from './dto/create-coffee.dto/create-coffee.dto';
 import { UpdateCoffeeDto } from './dto/update-coffee.dto/update-coffee.dto';
+import { COFFEE_BRANDS } from './coffees.constants';
 import { Coffee } from './entities/coffees.entity';
 import { Flavor } from './entities/flavor.entity';
 import { PaginationQueryDto } from 'src/common/dto/pagination-query.dto/pagination-query.dto';
@@ -20,7 +21,10 @@ export class CoffeesService {
         @InjectRepository(Flavor)
         private readonly flavorRepository: Repository<Flavor>,
         private readonly dataSource: DataSource,
-    ) {}
+        @Inject(COFFEE_BRANDS) coffeeBrands:string[]
+    ) {
+        console.log(coffeeBrands);
+    }
 
     //等价于select * from coffee
     /**
