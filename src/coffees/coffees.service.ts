@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException,Inject } from '@nestjs/common';
+import { Injectable, NotFoundException,Inject, Scope } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository,DataSource } from 'typeorm';
 import { CreateCoffeeDto } from './dto/create-coffee.dto/create-coffee.dto';
@@ -10,7 +10,7 @@ import { PaginationQueryDto } from 'src/common/dto/pagination-query.dto/paginati
 import { Event } from '../events/entities/event.entity/event.entity';
 
 //咖啡业务逻辑与内存数据
-@Injectable()
+@Injectable({scope:Scope.REQUEST})
 export class CoffeesService {
     //private coffees: Coffee[] = [];
 
@@ -23,7 +23,7 @@ export class CoffeesService {
         private readonly dataSource: DataSource,
         @Inject(COFFEE_BRANDS) coffeeBrands:string[]
     ) {
-        console.log(coffeeBrands);
+        console.log('CoffeesService instantiated');
     }
 
     //等价于select * from coffee

@@ -9,17 +9,24 @@ import {
   Res,
   Patch,
   Delete,
-  Query
+  Query,
+  Inject
 } from '@nestjs/common';
 import { CreateCoffeeDto } from './dto/create-coffee.dto/create-coffee.dto';
 import { UpdateCoffeeDto } from './dto/update-coffee.dto/update-coffee.dto';
 import { PaginationQueryDto } from 'src/common/dto/pagination-query.dto/pagination-query.dto';
 import { CoffeesService } from './coffees.service';
+import { REQUEST } from '@nestjs/core';
 
 //coffees路由控制器，处理coffees相关的路由请求
 @Controller('coffees')
 export class CoffeesController {
-  constructor(private readonly coffeesService: CoffeesService) {}
+  constructor(
+    private readonly coffeesService: CoffeesService,
+    @Inject(REQUEST) private readonly request:Request 
+  ) {
+    console.log('CoffeesController instantiated');
+  }
 
   @Get()
   findAll(@Query() paginationQuery: PaginationQueryDto) {

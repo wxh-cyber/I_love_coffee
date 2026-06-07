@@ -919,3 +919,184 @@ NestJS 社区对动态模块的静态方法有一套强约定俗成的命名规�
 
 ### 4. 异步配置
 
+在真实开发中，配置参数往往不是硬编码的，而是需要从远程拉取、或依赖另一个异步服务（如 ``ConfigService``）。NestJS 提供了 ``forRootAsync`` 来支持异步加载配置。
+
+核心是使用 ``useFactory``、``useClass`` 或 ``useExisting`` 配合 ``inject``：
+```ts
+import {Module,DynamicModule} from 'nestjs/common'
+import {ConfigModule,ConfigService} from 'nestjs/config'
+
+@Module({})
+export class DatabaseModule {
+  static forRootAsync(): DynamicModule {
+    return {
+      module: DatabaseModule,
+      imports: [ConfigModule], // 确保 ConfigModule 已导入
+      providers: [
+        {
+          provide: 'DATABASE_OPTIONS',
+          useFactory: (configService: ConfigService) => {
+            // 异步或依赖其他服务获取配置
+            return {
+              host: configService.get('DB_HOST'),
+              port: configService.get('DB_PORT'),
+            };
+          },
+          inject: [ConfigService], // 注入依赖
+        },
+        DatabaseService,
+      ],
+      exports: [DatabaseService],
+    };
+  }
+}
+```
+
+<hr />
+
+## 底层原理：Nest 是如何合并模块的？
+
+当 NestJS 启动时，它扫描 ``AppModule`` 的 ``imports`` 数组。如果发现某个导入是一个对象而不是类（比如调用了 DatabaseModule.``forRoot()`` 返回的对象），NestJS 会做以下处理：
+
+1. **提取 ``module`` 属性**：NestJS 读取返回对象中的 ``module: DatabaseModule``，知道这个配置属于 ``DatabaseModule`` 类。
+2. **合并元数据**：NestJS 会将 ``@Module({})`` 装饰器中静态定义的元数据，与 ``forRoot()`` 返回的动态元数据进行深度合并。
+- 如果静态模块里有一个 ``Provider``，动态方法又返回了三个 ``Provider``，最终容器里会有四个 ``Provider``。
+- 注意：如果在静态 ``@Module`` 中和动态返回对象中注册了相同 Token 的 ``Provider``，**动态返回的会覆盖静态的**。
+3. **注册到 IoC 容器**：合并后的完整模块定义被注册到依赖注入容器中，后续的解析过程与普通模块完全一致。
+
+**总结**:NestJS 动态模块的实现本质上是**将模块的定义从“声明式（装饰器）”延迟到了“运行时（函数调用）”**。通过在模块类上暴露返回 **DynamicModule** 的静态方法，巧妙地利用了 JavaScript 语言的动态特性，配合 IoC 容器的元数据合并机制，实现了高度灵活和可配置的模块化架构。
+
+<hr />
+
+## 在Nestjs中，注入作用域的覆盖关系具体是怎样的？
+
+在 NestJS 中，注入作用域的覆盖关系是一个非常核心且容易踩坑的机制。核心原则可以用一句话概括：**作用域是“向上冒泡”的，生命周期短的提供者会“提升”生命周期长的提供者**。
+
+这是因为依赖注入的本质是：**父组件（注入方）不能比它依赖的子组件（被注入方）活得更久**，否则父组件会在其生命周期内持有一个已经死亡的子组件实例，导致状态混乱。
+
+<br />
+
+### 规则一：作用域冒泡与提升矩阵
+
+NestJS 的三种作用域生命周期长短排序为：
+``DEFAULT (单例)`` > ``REQUEST (请求级)`` > ``TRANSIENT (瞬态)``
+
+当组件 A 依赖（注入）组件 B 时，组件 A 的最终作用域由两者中**生命周期最短**的那个决定。
+
+| **组件A作用域（注入方）** | **组件B作用域（被依赖方）** | **组件A最终作用域** | **原因** |
+| :--- | :--- | :--- | :--- |
+| **DEFAULT** | **DEFAULT** | DEFAULT | 都是单例，互不影响 |
+| **DEFAULT** | **REQUEST** | **REQUEST** ⚠️ | A 必须伴随每个请求重生，否则会跨请求共享 B |
+| **DEFAULT** | **TRANSIENT** | **TRANSIENT** ⚠️ | A 必须每次注入都重生，否则会重复使用 B |
+| **REQUEST** | **DEFAULT** | REQUEST | B 是单例，A 每次请求新生成，注入的都是同一个 B，合法 |
+| **REQUEST** | **REQUEST** | REQUEST | 同生同灭，合法 |
+| **REQUEST** | **TRANSIENT** | **TRANSIENT** ⚠️ | A 必须每次注入都重生，退化成瞬态 |
+| **TRANSIENT** | **DEFAULT** | TRANSIENT | 合法 |
+| **TRANSIENT** | **REQUEST** | TRANSIENT | 合法（每次新建 A 时，获取当前请求的 B） |
+| **TRANSIENT** | **TRANSIENT** | TRANSIENT | 合法 |
+
+举个例子：
+```ts
+@Injectable() // 默认 DEFAULT 单例
+export class UserService {
+  constructor(private readonly cacheService: CacheService) {}
+}
+
+@Injectable({ scope: Scope.REQUEST }) // 请求级
+export class CacheService {}
+```
+**结果**： 虽然 ``UserService`` 声明为默认单例，但因为它是 ``CacheService`` 的宿主，为了确保每个请求拿到独立的 ``CacheService``，NestJS 会**强制将 ``UserService`` 的作用域提升为 ``REQUEST``**。
+
+<hr />
+
+### 规则二：声明位置的优先级覆盖
+
+作用域可以在两个地方声明：
+
+1. 类装饰器：``@Injectable({ scope: Scope.REQUEST })``
+2. 模块注册时（自定义提供者）：``{ provide: UserService, useClass: UserService, scope: Scope.REQUEST }``
+
+**覆盖规则：模块注册时的 ``scope`` 优先级高于类装饰器上的 ``scope``**。
+
+```ts
+// 1. 类上声明为 DEFAULT
+@Injectable() 
+export class UserService {}
+
+// 2. 模块中声明为 REQUEST
+@Module({
+  providers: [
+    {
+      provide: UserService,
+      useClass: UserService,
+      scope: Scope.REQUEST, // 优先级更高！最终 UserService 是 REQUEST 作用域
+    },
+  ],
+})
+export class UserModule {}
+```
+这种机制允许你在不修改源码的情况下，动态改变第三方库提供者的作用域。
+
+<br />
+
+### 规则三、控制器的作用域传染链
+
+Controller 本身也可以声明作用域 (``@Controller({ scope: Scope.REQUEST })``)。
+
+由于 Controller 是请求处理的入口，**Controller 的作用域会向下传染给所有它注入的 DEFAULT 作用域的 Service**。
+```ts
+@Controller({ scope: Scope.REQUEST })
+export class UserController {
+  constructor(private readonly userService: UserService) {} // UserService 会被提升为 REQUEST
+}
+```
+如果一个单例 Service 被一个 REQUEST 的 Controller 和另一个单例 Controller 同时注入，那么**该 Service 会被提升为 REQUEST**，每次请求都会重新创建。
+
+<br />
+
+### 规则四、跨模块的作用域传染
+
+作用域冒泡是不受模块边界限制的。
+
+如果 ``ModuleA`` 中的 ``SingletonServiceA``（单例）注入了 ``ModuleB`` 导出的 ``RequestServiceB``（请求级），那么 **``SingletonServiceA`` 及其所在的整条依赖链都会被提升为 ``REQUEST`` 作用域**。
+
+这是极其危险的，可能会引发大面积的不可预期的性能问题（大量原本可以复用的单例变成了每次请求新建的对象）。
+
+<br />
+
+### 如何打破作用域冒泡？（最佳实践）
+
+因为作用域提升会导致性能损耗（频繁创建和销毁实例），NestJS 官方强烈建议默认使用 ``DEFAULT`` 单例。如果确实需要在单例中使用请求级数据，**不要通过提升作用域来解决，而是使用 ``@Inject(REQUEST)`` 注入请求对象引用**。
+
+**错误的用法（导致作用域提升）**：
+```ts
+@Injectable()
+export class SingletonService {
+  constructor(private readonly requestService: RequestService) {} // 导致 SingletonService 变成 REQUEST
+}
+```
+
+**正确的用法（保持单例，手动获取请求上下文）**：
+```ts
+import { REQUEST } from '@nestjs/core';
+import { Inject, Injectable } from '@nestjs/common';
+
+@Injectable() // 保持单例
+export class SingletonService {
+  constructor(@Inject(REQUEST) private readonly request: Request) {} 
+  
+  doSomething() {
+    // 通过 request 对象获取请求级数据，无需提升作用域
+    const tenantId = this.request.headers['x-tenant-id']; 
+  }
+}
+```
+通过注入 ``REQUEST``（或 ``CONTEXT``），单例服务可以安全地访问当前请求的上下文，而不会触发作用域冒泡机制。
+
+<br />
+
+### 总结
+
+1. **谁短听谁的**：依赖链中生命周期最短的组件决定了整条链的作用域。
+2. **模块覆盖类**：Module 注册配置的优先级大于 ``@Injectable`` 装饰器的配置。
+3. **慎用非单例**：除非明确需要，否则保持 ``DEFAULT``，遇到需要请求上下文的场景，优先使用 ``@Inject(REQUEST)`` 而非改变作用域。
