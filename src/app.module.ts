@@ -1,3 +1,4 @@
+import * as Joi from '@hapi/joi'
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -11,7 +12,12 @@ import { ConfigModule } from '@nestjs/config';
 //TypeORM.forRoot主要作用是在根模块注册一次，从而建立数据库连接
 @Module({
   imports: [
-    ConfigModule.forRoot({}),
+    ConfigModule.forRoot({
+      validationSchema:Joi.object({
+        DATABASE_HOST:Joi.required(),
+        DATABASE_PORT:Joi.number().default(5432),
+      })
+    }),
     CoffeesModule,
     TypeOrmModule.forRoot({
     type:'postgres',

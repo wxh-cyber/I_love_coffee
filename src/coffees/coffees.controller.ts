@@ -23,9 +23,9 @@ import { REQUEST } from '@nestjs/core';
 export class CoffeesController {
   constructor(
     private readonly coffeesService: CoffeesService,
-    @Inject(REQUEST) private readonly request:Request 
+    // @Inject(REQUEST) private readonly request:Request 
   ) {
-    console.log('CoffeesController instantiated');
+    // console.log('CoffeesController instantiated');
   }
 
   @Get()

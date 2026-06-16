@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException,Inject, Scope } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { ConfigService, ConfigType } from '@nestjs/config';
 import { Repository,DataSource } from 'typeorm';
 import { CreateCoffeeDto } from './dto/create-coffee.dto/create-coffee.dto';
 import { UpdateCoffeeDto } from './dto/update-coffee.dto/update-coffee.dto';
@@ -8,9 +9,10 @@ import { Coffee } from './entities/coffees.entity';
 import { Flavor } from './entities/flavor.entity';
 import { PaginationQueryDto } from 'src/common/dto/pagination-query.dto/pagination-query.dto';
 import { Event } from '../events/entities/event.entity/event.entity';
+import coffeesConfig from './config/coffees.config';
 
 //咖啡业务逻辑与内存数据
-@Injectable({scope:Scope.REQUEST})
+@Injectable()
 export class CoffeesService {
     //private coffees: Coffee[] = [];
 
@@ -21,9 +23,19 @@ export class CoffeesService {
         @InjectRepository(Flavor)
         private readonly flavorRepository: Repository<Flavor>,
         private readonly dataSource: DataSource,
-        @Inject(COFFEE_BRANDS) coffeeBrands:string[]
+        // @Inject(COFFEE_BRANDS) coffeeBrands:string[]
+
+        // private readonly configService:ConfigService
+
+        @Inject(coffeesConfig.KEY)
+        private readonly coffeesConfiguration:ConfigType<typeof coffeesConfig>
     ) {
-        console.log('CoffeesService instantiated');
+        // console.log('CoffeesService instantiated');
+
+        // const coffeesConfig=this.configService.get('coffees');
+        // console.log(coffeesConfig);
+
+        console.log(coffeesConfiguration);
     }
 
     //等价于select * from coffee
